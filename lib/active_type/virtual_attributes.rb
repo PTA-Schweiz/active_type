@@ -16,6 +16,10 @@ module ActiveType
         @options = options
       end
 
+      def ar_fallback?
+        @options[:ar_fallback]
+      end
+
       def type_cast(value)
         @type_caster.type_cast_from_user(value)
       end
@@ -36,7 +40,7 @@ module ActiveType
 
       def build(name, type, options)
         validate_attribute_name!(name)
-        options.assert_valid_keys(:default)
+        options.assert_valid_keys(:default, :ar_fallback)
         add_virtual_column(name, type, options)
         build_reader(name)
         build_writer(name)
@@ -47,7 +51,7 @@ module ActiveType
 
       def add_virtual_column(name, type, options)
         type_caster = TypeCaster.get(type)
-        column = VirtualColumn.new(name, type_caster, options.slice(:default))
+        column = VirtualColumn.new(name, type_caster, options.slice(:default, :ar_fallback))
         @owner.virtual_columns_hash = @owner.virtual_columns_hash.merge(name.to_s => column)
       end
 
@@ -207,9 +211,29 @@ module ActiveType
       else
         virtual_attributes_cache[name] = begin
           virtual_column = self.singleton_class._virtual_column(name)
-          raw_value = virtual_attributes.fetch(name) { virtual_column.default_value(self) }
+          raw_value = virtual_attributes.fetch(name) {
+            _try_read_ar(name, virtual_column) || virtual_column.default_value(self)
+          }
           virtual_column.type_cast(raw_value)
         end
+      end
+    end
+
+    def _try_read_ar(name, virtual_column)
+      _can_read_from_ar?(name, virtual_column) ? _read_from_ar_attributes(name) : nil
+    end
+
+    def _can_read_from_ar?(name, virtual_column)
+      @attributes && @attributes.key?(name) && virtual_column.ar_fallback?
+    end
+
+    def _read_from_ar_attributes(name)
+      if @attributes.respond_to?(:fetch_value)
+        # active record 4.2+
+        _attr = @attributes.fetch_value(name)
+        _attr.try(:value_before_type_cast) || _attr
+      else
+        @attributes.fetch(name)
       end
     end
 

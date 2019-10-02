@@ -4,6 +4,11 @@ database.connect
 
 database.rewrite_schema! do
 
+  create_table :samples do |t|
+    t.string :name
+    t.integer :value
+  end
+
   create_table :records do |t|
     t.string :persisted_string
     t.integer :persisted_integer
